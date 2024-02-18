@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-export CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
+export CUDA_VISIBLE_DEVICES=0
 
 # settings
 MODEL_ARC=$1
 DATASET=$2
-OUTPUT=results/${DATASET}-${MODEL_ARC}/
+OUTPUT=../results/${DATASET}-${MODEL_ARC}/
 mkdir -p ${OUTPUT}
 
 # CUDA_LAUNCH_BLOCKING=1
@@ -14,10 +14,11 @@ python3 -u train.py \
     --workers 16 \
     --epochs 100 \
     --start-epoch 0 \
-    --batch-size 256 \
-    --learning-rate 0.05 \
+    --batch-size 128 \
+    --learning-rate 0.03 \
     --momentum 0.9 \
     --weight-decay 1e-4 \
+    --mrl true \
     --print-freq 10 \
     --pth-save-fold ${OUTPUT} \
     --pth-save-epoch 1 \

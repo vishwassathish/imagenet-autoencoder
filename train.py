@@ -10,6 +10,7 @@ import torch.multiprocessing as mp
 
 import utils
 import models.builer as builder
+import models.mrl as MRL
 import dataloader
 
 def get_args():
@@ -37,6 +38,10 @@ def get_args():
     parser.add_argument('--wd', '--weight-decay', default=1e-4, type=float,
                         metavar='W', help='weight decay (default: 1e-4)',
                         dest='weight_decay')
+
+    parser.add_argument('--mrl', '--matryoshka', default=False, type=bool,
+                        help='Use matryoshka layer and loss')
+
 
     parser.add_argument('-p', '--print-freq', default=100, type=int,
                         metavar='N', help='print frequency (default: 10)')
@@ -107,7 +112,12 @@ def main_worker(gpu, args):
 
     if args.rank == 0:
         print('=> building the criterion ...')
-    criterion = nn.MSELoss()
+    
+    if args.mrl:
+        print("Using Matryoshka Loss ...")
+        criterion = MRL.Matryoshka_MSE_Loss()
+    else:
+        criterion = nn.MSELoss()
 
     global iters
     iters = 0

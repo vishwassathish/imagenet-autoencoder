@@ -1,5 +1,7 @@
+import sys
 import torch
 import torch.nn as nn
+from models.mrl import Matryoshka_MSE_Loss, MRL_Linear_Layer
 
 def get_configs(arch='resnet50'):
 
@@ -20,19 +22,38 @@ def get_configs(arch='resnet50'):
 
 class ResNetAutoEncoder(nn.Module):
 
-    def __init__(self, configs, bottleneck):
+    def __init__(self, configs, bottleneck, mrl=False):
 
         super(ResNetAutoEncoder, self).__init__()
 
-        self.encoder = ResNetEncoder(configs=configs,       bottleneck=bottleneck)
+        self.mrl = mrl
+        # print("Using MRL: ", self.mrl)
+        self.encoder = ResNetEncoder(configs=configs,       bottleneck=bottleneck, mrl=self.mrl)
         self.decoder = ResNetDecoder(configs=configs[::-1], bottleneck=bottleneck)
     
     def forward(self, x):
 
-        x = self.encoder(x)
-        x = self.decoder(x)
+        output = self.encoder(x)
+        # print("In the autoencoder: ", len(output))
+        
+        if self.mrl:
+            reconstruction_list = []
 
-        return x
+            for output_i in output:
+                output_i = output_i[..., None, None]
+                output_i = output_i.repeat(1, 1, 7, 7)
+                # print(output_i.shape)
+
+                decoder_output = self.decoder(output_i)
+
+                # print("Decoder Output: " , decoder_output.shape)
+                reconstruction_list.append(decoder_output)
+            
+            return reconstruction_list
+        
+        else:
+            y = self.decoder(output)
+            return y
 
 class ResNet(nn.Module):
 
@@ -75,8 +96,10 @@ class ResNet(nn.Module):
 
 class ResNetEncoder(nn.Module):
 
-    def __init__(self, configs, bottleneck=False):
+    def __init__(self, configs, bottleneck=False, mrl=False):
         super(ResNetEncoder, self).__init__()
+        
+        self.mrl = mrl
 
         if len(configs) != 4:
             raise ValueError("Only 4 layers can be configued")
@@ -101,6 +124,10 @@ class ResNetEncoder(nn.Module):
             self.conv4 = EncoderResidualBlock(in_channels=128, hidden_channels=256, layers=configs[2], downsample_method="conv")
             self.conv5 = EncoderResidualBlock(in_channels=256, hidden_channels=512, layers=configs[3], downsample_method="conv")
 
+        if mrl:
+            self.avpool = nn.AdaptiveAvgPool2d((1,1))
+            self.mrl_bottleneck = MRL_Linear_Layer(nesting_list=[128, 256, 512], num_classes=512, efficient=True)
+
     def forward(self, x):
 
         x = self.conv1(x)
@@ -109,6 +136,11 @@ class ResNetEncoder(nn.Module):
         x = self.conv4(x)
         x = self.conv5(x)
 
+        if self.mrl:
+            x = self.avpool(x)
+            x = torch.squeeze(x)
+            x = self.mrl_bottleneck(x)
+        
         return x
 
 class ResNetDecoder(nn.Module):
@@ -126,7 +158,6 @@ class ResNetDecoder(nn.Module):
             self.conv3 = DecoderBottleneckBlock(in_channels=512,  hidden_channels=128, down_channels=256,  layers=configs[2])
             self.conv4 = DecoderBottleneckBlock(in_channels=256,  hidden_channels=64,  down_channels=64,   layers=configs[3])
 
-
         else:
 
             self.conv1 = DecoderResidualBlock(hidden_channels=512, output_channels=256, layers=configs[0])
@@ -143,7 +174,7 @@ class ResNetDecoder(nn.Module):
         self.gate = nn.Sigmoid()
 
     def forward(self, x):
-
+        
         x = self.conv1(x)
         x = self.conv2(x)
         x = self.conv3(x)
@@ -509,20 +540,31 @@ class DecoderBottleneckLayer(nn.Module):
 
 if __name__ == "__main__":
 
-    configs, bottleneck = get_configs("resnet152")
+    configs, bottleneck = get_configs("resnet18")
 
-    encoder = ResNetEncoder(configs, bottleneck)
+    encoder = ResNetEncoder(configs, bottleneck, mrl=True)
 
     input = torch.randn((5,3,224,224))
+    target = torch.randn((5,3,224,224))
 
     print(input.shape)
 
     output = encoder(input)
 
-    print(output.shape)
+    decoder = ResNetDecoder(configs[::-1], bottleneck, mrl=True)
 
-    decoder = ResNetDecoder(configs[::-1], bottleneck)
+    reconstruction_list = []
+    for output_i in output:
 
-    output = decoder(output)
+        output_i = output_i[..., None, None]
+        print(output_i.shape)
 
-    print(output.shape)
+        decoder_output = decoder(output_i)
+
+        print("Decoder Output: " , decoder_output.shape)
+        reconstruction_list.append(decoder_output)
+    
+    criterion = Matryoshka_MSE_Loss()
+    loss = criterion(reconstruction_list, target)
+    print(loss)
+    
