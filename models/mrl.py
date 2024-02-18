@@ -43,13 +43,13 @@ class Matryoshka_MSE_Loss(nn.Module):
 
 		# Calculate losses for each output and stack them. This is still O(N)
 		losses = torch.stack([self.criterion(output_i, target) for output_i in output])
-		# print(losses.shape)
+		
 		# Set relative_importance to 1 if not specified
 		rel_importance = torch.ones_like(losses) if self.relative_importance is None else torch.tensor(self.relative_importance)
 		
 		# Apply relative importance weights
 		weighted_losses = rel_importance * losses
-		print(weighted_losses)
+		
 		return weighted_losses.sum()
 
 
