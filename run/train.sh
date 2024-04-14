@@ -4,7 +4,8 @@ export CUDA_VISIBLE_DEVICES=0
 # settings
 MODEL_ARC=$1
 DATASET=$2
-OUTPUT=../results/${DATASET}-${MODEL_ARC}/
+CKPT=$3
+OUTPUT=../results/${DATASET}-${MODEL_ARC}/ 
 mkdir -p ${OUTPUT}
 
 # CUDA_LAUNCH_BLOCKING=1
@@ -18,7 +19,7 @@ python3 -u train.py \
     --learning-rate 0.03 \
     --momentum 0.9 \
     --weight-decay 1e-4 \
-    --mrl true \
+    --resume ${CKPT} \
     --print-freq 10 \
     --pth-save-fold ${OUTPUT} \
     --pth-save-epoch 1 \

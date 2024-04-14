@@ -25,6 +25,9 @@ def get_args():
     parser.add_argument('--arch', default='vgg16', type=str, 
                         help='backbone architechture')
     parser.add_argument('--resume', type=str)      
+
+    # parser.add_argument('--mrl', '--matryoshka', default=False, type=bool,
+    #                     help='Use matryoshka layer and loss')
     
     args = parser.parse_args()
 
@@ -36,6 +39,9 @@ def get_args():
 
 def random_sample(arch):
 
+    # if args.mrl == True:
+    #     random_latent = torch.randn((1, 512, 1, 1))
+    #     return random_latent.repeat(1, 1, 7, 7)
     if arch in ["vgg11", "vgg13", "vgg16", "vgg19", "resnet18", "resnet34"]:
         return torch.randn((1,512,7,7))
     elif arch in ["resnet50", "resnet101", "resnet152"]:
@@ -67,7 +73,7 @@ def main(args):
             
             input = random_sample(arch=args.arch).cuda()
 
-            output = model.module.decoder(input)
+            output = model.module.decoder(input, mrl_dim=32)
 
             output = trans(output.squeeze().cpu())
 

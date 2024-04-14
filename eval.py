@@ -11,7 +11,10 @@ import torch.nn as nn
 
 import utils
 import models.builer as builder
+import models.mrl as MRL
 import dataloader
+
+DIMS = 512
 
 def get_args():
     # parse the args
@@ -26,6 +29,9 @@ def get_args():
                         help='mini-batch size (default: 256), this is the total '
                         'batch size of all GPUs on the current node when '
                         'using Data Parallel or Distributed Data Parallel')
+    
+    # parser.add_argument('--mrl', '--matryoshka', default=False, type=bool,
+    #                     help='Use matryoshka layer and loss')
 
     parser.add_argument('-p', '--print-freq', default=20, type=int,
                         metavar='N', help='print frequency (default: 10)')
@@ -55,8 +61,14 @@ def main(args):
     
     print('=> building the dataloader ...')
     val_loader = dataloader.val_loader(args)
+    print(val_loader)
 
     print('=> building the criterion ...')
+
+    # if args.mrl:
+    #     print("Using Matryoshka Loss ...")
+    #     criterion = MRL.Matryoshka_MSE_Loss()
+    # else:
     criterion = nn.MSELoss()
 
     print('=> starting evaluating engine ...')
@@ -69,7 +81,8 @@ def main(args):
             print("Epoch {}".format(epoch+1))
             resume_path = os.path.join(args.folder, "%03d.pth" % epoch)
             print('=> loading pth from {} ...'.format(resume_path))
-            utils.load_dict(resume_path, model)
+
+            model = utils.load_dict(resume_path, model)
             loss = do_evaluate(val_loader, model, criterion, args)
             print("Evaluate loss : {:.4f}".format(loss))
 
@@ -116,6 +129,7 @@ def do_evaluate(val_loader, model, criterion, args):
 
     model.eval()
     with torch.no_grad():
+        loss_list = []
         for i, (input, target) in enumerate(val_loader):
             # measure data loading time
             data_time.update(time.time() - end)
@@ -123,11 +137,18 @@ def do_evaluate(val_loader, model, criterion, args):
             input = input.cuda(non_blocking=True)
             target = target.cuda(non_blocking=True)
 
-            output = model(input)
-
-            loss = criterion(output, target)
-
+            output = model(input, mrl_dims=[DIMS])
+            # output = model(input)
+            # print(output[0].shape, target.shape)
+            # loss_ = []
+            # for i in range(len(output)):
+            #     loss_.append(criterion(output[i], target))
+            #     loss = torch.sum(torch.stack(loss_))
+            loss = criterion(output[0], target)
             # record loss
+
+            loss_list.append((loss.item(), i))
+            print(i)
             losses.update(loss.item(), input.size(0))          
             batch_time.update(time.time() - end)        
             end = time.time()   
@@ -135,6 +156,7 @@ def do_evaluate(val_loader, model, criterion, args):
             if i % args.print_freq == 0:
                 progress.display(i)
     
+    print(sorted(loss_list, key=lambda x:x[0])[:100])
     return losses.avg
 
 if __name__ == '__main__':
@@ -142,5 +164,3 @@ if __name__ == '__main__':
     args = get_args()
 
     main(args)
-
-

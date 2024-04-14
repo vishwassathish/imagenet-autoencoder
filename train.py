@@ -42,6 +42,7 @@ def get_args():
     parser.add_argument('--mrl', '--matryoshka', default=False, type=bool,
                         help='Use matryoshka layer and loss')
 
+    parser.add_argument('--resume', type=str, default=None)
 
     parser.add_argument('-p', '--print-freq', default=100, type=int,
                         metavar='N', help='print frequency (default: 10)')
@@ -93,7 +94,13 @@ def main_worker(gpu, args):
         args.gpus = 1 
     if args.rank == 0:
         print('=> modeling the network {} ...'.format(args.arch))
-    model = builder.BuildAutoEncoder(args) 
+    model = builder.BuildAutoEncoder(args)
+    
+    # Load ckpt if given
+    if args.resume:
+        print('=> loading pth from {} ...'.format(args.resume))
+        model = utils.load_dict(args.resume, model)
+    
     if args.rank == 0:       
         total_params = sum(p.numel() for p in model.parameters())
         print('=> num of params: {} ({}M)'.format(total_params, int(total_params * 4 / (1024*1024))))
@@ -113,11 +120,11 @@ def main_worker(gpu, args):
     if args.rank == 0:
         print('=> building the criterion ...')
     
-    if args.mrl:
-        print("Using Matryoshka Loss ...")
-        criterion = MRL.Matryoshka_MSE_Loss()
-    else:
-        criterion = nn.MSELoss()
+    # if args.mrl:
+    #     print("Using Matryoshka Loss ...")
+    #     criterion = MRL.Matryoshka_MSE_Loss()
+    # else:
+    criterion = nn.MSELoss()
 
     global iters
     iters = 0
@@ -132,6 +139,7 @@ def main_worker(gpu, args):
 
         train_loader.sampler.set_epoch(epoch)
         
+        # print("Epoch 1")
         # train for one epoch
         do_train(train_loader, model, criterion, optimizer, epoch, args)
 
@@ -176,21 +184,37 @@ def do_train(train_loader, model, criterion, optimizer, epoch, args):
         input = input.cuda(non_blocking=True)
         target = target.cuda(non_blocking=True)
 
-        output = model(input)
-
-        loss = criterion(output, target)
-
-        # compute gradient and do solver step
+        # torch.autograd.set_detect_anomaly(True)
         optimizer.zero_grad()
-        # backward
+        # output = model(input, mrl_dims=[32, 64, 128, 256, 512]) 
+
+        output = model(input)
+        # compute gradient and do solver step
+        
+        if len(output) > 1:
+            loss_ = []
+            # backward
+            for j in range(len(output)):
+                loss_.append(criterion(output[j], target))
+            
+            print(loss_)
+            loss = torch.sum(torch.stack(loss_))
+                
+        else:
+            loss = criterion(output[0], target)
+
         loss.backward()
+        # print("Loss: ", loss.item())
+
         # update weights
         optimizer.step()
-
+        # print("Optimized")
+        # print(i, args.print_freq, args.rank)
         # syn for logging
-        torch.cuda.synchronize()
+        # torch.cuda.synchronize()
 
         # record loss
+        # print("here")
         losses.update(loss.item(), input.size(0))          
 
         # measure elapsed time
@@ -198,6 +222,7 @@ def do_train(train_loader, model, criterion, optimizer, epoch, args):
             batch_time.update(time.time() - end)        
             end = time.time()   
 
+        # print(i, args.print_freq, args.rank)
         if i % args.print_freq == 0 and args.rank == 0:
             progress.display(i)
 

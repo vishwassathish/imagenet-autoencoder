@@ -11,9 +11,7 @@ def BuildAutoEncoder(args):
 
     elif args.arch in ["resnet18", "resnet34", "resnet50", "resnet101", "resnet152"]:
         configs, bottleneck = resnet.get_configs(args.arch)
-        mrl = args.mrl
-        print("In builder: ", mrl)
-        model = resnet.ResNetAutoEncoder(configs, bottleneck, mrl)
+        model = resnet.ResNetAutoEncoder(configs, bottleneck)
     
     else:
         return None

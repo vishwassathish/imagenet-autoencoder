@@ -12,6 +12,7 @@ python3 -u eval.py \
     --val_list list/${DATASET}_list.txt \
     --workers 16 \
     --batch-size 256 \
+    --mrl true \
     --print-freq 10 \
     --folder ${FOLDER} \
     --start_epoch 0 \

@@ -1,4 +1,5 @@
 import sys
+sys.path.append("/mmfs1/gscratch/rao/vsathish/matryoshka/imagenet-autoencoder/")
 import torch
 import torch.nn as nn
 from models.mrl import Matryoshka_MSE_Loss, MRL_Linear_Layer
@@ -22,38 +23,28 @@ def get_configs(arch='resnet50'):
 
 class ResNetAutoEncoder(nn.Module):
 
-    def __init__(self, configs, bottleneck, mrl=False):
+    def __init__(self, configs, bottleneck):
 
         super(ResNetAutoEncoder, self).__init__()
 
-        self.mrl = mrl
-        # print("Using MRL: ", self.mrl)
-        self.encoder = ResNetEncoder(configs=configs,       bottleneck=bottleneck, mrl=self.mrl)
+        self.encoder = ResNetEncoder(configs=configs,       bottleneck=bottleneck)
         self.decoder = ResNetDecoder(configs=configs[::-1], bottleneck=bottleneck)
     
-    def forward(self, x):
+    def forward(self, x, mrl_dims = None):
 
         output = self.encoder(x)
-        # print("In the autoencoder: ", len(output))
-        
-        if self.mrl:
-            reconstruction_list = []
+        # print("Encoder Output : ", output.shape, output.requires_grad)
+        if mrl_dims is not None:
+            y_list = []
+            for mrl_dim in mrl_dims:
+                y = self.decoder(output, mrl_dim)
+                # print("Decoder Output : ", y.shape, y.requires_grad)
+                y_list.append(y)
+            return y_list
 
-            for output_i in output:
-                output_i = output_i[..., None, None]
-                output_i = output_i.repeat(1, 1, 7, 7)
-                # print(output_i.shape)
-
-                decoder_output = self.decoder(output_i)
-
-                # print("Decoder Output: " , decoder_output.shape)
-                reconstruction_list.append(decoder_output)
-            
-            return reconstruction_list
-        
         else:
             y = self.decoder(output)
-            return y
+            return [y]
 
 class ResNet(nn.Module):
 
@@ -125,8 +116,8 @@ class ResNetEncoder(nn.Module):
             self.conv5 = EncoderResidualBlock(in_channels=256, hidden_channels=512, layers=configs[3], downsample_method="conv")
 
         if mrl:
-            self.avpool = nn.AdaptiveAvgPool2d((1,1))
-            self.mrl_bottleneck = MRL_Linear_Layer(nesting_list=[128, 256, 512], num_classes=512, efficient=True)
+            self.avpool = nn.AdaptiveAvgPool2d((2,2))
+            self.mrl_bottleneck = MRL_Linear_Layer(nesting_list=[512, 1024, 2048], num_classes=2048, efficient=True)
 
     def forward(self, x):
 
@@ -136,20 +127,32 @@ class ResNetEncoder(nn.Module):
         x = self.conv4(x)
         x = self.conv5(x)
 
-        if self.mrl:
-            x = self.avpool(x)
-            x = torch.squeeze(x)
-            x = self.mrl_bottleneck(x)
-        
+        # if self.mrl:
+        #     print(x.shape)
+        #     x = self.avpool(x)
+        #     print(x.shape)
+        #     # x = torch.squeeze(x)
+        #     x = torch.flatten(x, 1)
+        #     print(x.shape)
+        #     x = self.mrl_bottleneck(x)
+
         return x
 
 class ResNetDecoder(nn.Module):
 
-    def __init__(self, configs, bottleneck=False):
+    def __init__(self, configs, bottleneck=False, mrl=False):
         super(ResNetDecoder, self).__init__()
+        
+        self.mrl = mrl
+        # if mrl:
+        #     self.deconv1 = nn.ConvTranspose2d(in_channels=512, out_channels=512, kernel_size=3, \
+        #                                     stride=2, padding=1, bias=False)
+        #     self.deconv2 = nn.ConvTranspose2d(in_channels=512, out_channels=512, kernel_size=3, \
+        #                                     stride=2, padding=1, bias=False)
 
         if len(configs) != 4:
             raise ValueError("Only 4 layers can be configued")
+
 
         if bottleneck:
 
@@ -159,7 +162,6 @@ class ResNetDecoder(nn.Module):
             self.conv4 = DecoderBottleneckBlock(in_channels=256,  hidden_channels=64,  down_channels=64,   layers=configs[3])
 
         else:
-
             self.conv1 = DecoderResidualBlock(hidden_channels=512, output_channels=256, layers=configs[0])
             self.conv2 = DecoderResidualBlock(hidden_channels=256, output_channels=128, layers=configs[1])
             self.conv3 = DecoderResidualBlock(hidden_channels=128, output_channels=64,  layers=configs[2])
@@ -173,14 +175,25 @@ class ResNetDecoder(nn.Module):
 
         self.gate = nn.Sigmoid()
 
-    def forward(self, x):
-        
+    def forward(self, x, mrl_dim = None):
+
+        # print("here : " , x.shape, self.mrl)
+        if mrl_dim != x.shape[1] and  mrl_dim is not None:
+            # print("Inside MRL stuff")
+            mrl_mask = torch.cat((torch.ones((x.shape[0], mrl_dim, 7, 7)), 
+                                  torch.zeros((x.shape[0], x.shape[1] - mrl_dim, 7, 7))), dim=1).to(x.device)
+            # print("Mask : ", mrl_mask.shape)
+            x = torch.mul(x, mrl_mask)
+            # x *= mrl_mask
+            # print("Output : ", x.shape)
+
         x = self.conv1(x)
         x = self.conv2(x)
         x = self.conv3(x)
         x = self.conv4(x)
         x = self.conv5(x)
         x = self.gate(x)
+
 
         return x
 
@@ -542,7 +555,7 @@ if __name__ == "__main__":
 
     configs, bottleneck = get_configs("resnet18")
 
-    encoder = ResNetEncoder(configs, bottleneck, mrl=True)
+    encoder = ResNetEncoder(configs, bottleneck, mrl=False)
 
     input = torch.randn((5,3,224,224))
     target = torch.randn((5,3,224,224))
@@ -551,20 +564,20 @@ if __name__ == "__main__":
 
     output = encoder(input)
 
-    decoder = ResNetDecoder(configs[::-1], bottleneck, mrl=True)
+    decoder = ResNetDecoder(configs[::-1], bottleneck, mrl=False)
 
     reconstruction_list = []
-    for output_i in output:
+    mrl_dims = [128, 256, 512]
+    for mrl_dim in mrl_dims:
 
-        output_i = output_i[..., None, None]
-        print(output_i.shape)
-
-        decoder_output = decoder(output_i)
+        decoder_output = decoder(output, mrl_dim=mrl_dim)
 
         print("Decoder Output: " , decoder_output.shape)
         reconstruction_list.append(decoder_output)
     
-    criterion = Matryoshka_MSE_Loss()
-    loss = criterion(reconstruction_list, target)
-    print(loss)
+    criterion = nn.MSELoss()
+    final_loss = torch.stack([criterion(reconstruction, target) for reconstruction in reconstruction_list])
+
+
+    
     

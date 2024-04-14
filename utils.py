@@ -82,15 +82,17 @@ def adjust_learning_rate_cosine(optimizer, epoch, args):
     for param_group in optimizer.param_groups:
         param_group['lr'] = lr
     return current_lr
-
+ 
 def load_dict(resume_path, model):
     if os.path.isfile(resume_path):
         checkpoint = torch.load(resume_path)
         model_dict = model.state_dict()
         model_dict.update(checkpoint['state_dict'])
         model.load_state_dict(model_dict)
+        print("Loaded the model from '{}'".format(resume_path))
         # delete to release more space
         del checkpoint
     else:
-        sys.exit("=> No checkpoint found at '{}'".format(resume_path))
+        # sys.exit("=> No checkpoint found at '{}'".format(resume_path))
+        print("=> No checkpoint found at '{}'".format(resume_path))
     return model
